@@ -97,7 +97,7 @@ class FlowDataset(data.Dataset):
         else:
             valid = (flow[0].abs() < 1000) & (flow[1].abs() < 1000)
 
-        return img1, img2, flow, valid.float()
+        return img1, img2, flow, valid.float(), self.extra_info[index]
 
 
     def __rmul__(self, v):
@@ -267,14 +267,14 @@ class FlyingThings3DDistract(FlowDataset):
 
 
 class KITTI(FlowDataset):
-    def __init__(self, aug_params=None, split='training', root='/home/why/vslam/dataset/kitti'):
+    def __init__(self, aug_params=None, split='training', root='/home/why/vslam/dataset/kitti', dirName="image_2"):
         super(KITTI, self).__init__(aug_params, sparse=True)
         if split == 'testing':
             self.is_test = True
 
         root = osp.join(root, split)
-        images1 = sorted(glob(osp.join(root, 'image_2/*_10.png')))
-        images2 = sorted(glob(osp.join(root, 'image_2/*_11.png')))
+        images1 = sorted(glob(osp.join(root, dirName, '*_10.png')))
+        images2 = sorted(glob(osp.join(root, dirName, '*_11.png')))
 
         for img1, img2 in zip(images1, images2):
             frame_id = img1.split('/')[-1]

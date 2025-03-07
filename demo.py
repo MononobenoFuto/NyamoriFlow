@@ -283,12 +283,21 @@ def validate_sintel(model, sigma=0.05, cfg=None):
 
 @torch.no_grad()
 def validate_kitti(model, sigma=0.05, cfg=None):
-    IMAGE_SIZE = [432, 1242]
+    print(args.data_path[-4:])
+    if args.data_path[-4:] == "2012":
+        IMAGE_SIZE = [432, 1226]
+        dirName = "colored_0"
+    else:
+        IMAGE_SIZE = [432, 1242]
+        dirName = "image_2"
+    output_path = cfg.save_path   
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
 
     hws = compute_grid_indices(IMAGE_SIZE, TRAIN_SIZE)
     weights = compute_weight(hws, IMAGE_SIZE, TRAIN_SIZE, sigma)
     model.eval()
-    val_dataset = datasets.KITTI(split='training')
+    val_dataset = datasets.KITTI(split='training', root=cfg.data_path, dirName=dirName)
 
     out_list, epe_list = [], []
     for val_id in range(len(val_dataset)):
@@ -305,6 +314,10 @@ def validate_kitti(model, sigma=0.05, cfg=None):
         image1, image2 = padder.pad(image1[None].cuda(), image2[None].cuda())
 
         flow_pre = inference_with_tile(model, image1, image2, hws, weights, TRAIN_SIZE, IMAGE_SIZE, padder=padder)
+
+        
+        output_filename = os.path.join(output_path, val_id)
+        frame_utils.writeFlowKITTI(output_filename, flow)
 
         flow = flow_pre[0].cpu()
         epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
@@ -435,6 +448,42 @@ def getflow_tum(model, sigma=0.05, cfg=None):
         # out_linepic(image1[0].cpu(), image2[0].cpu(), flow, os.path.join(cfg.save_path, frame_id[0]))
         out_flow(flow, os.path.join(cfg.save_path, frame_id[0]).replace('.png', '.npy'))
 
+
+@torch.no_grad()
+def test_kittis(model, sigma=0.05, cfg=None):
+    # IMAGE_SIZE = [432, 1242]
+    IMAGE_SIZE = [432, 1226]
+
+    hws = compute_grid_indices(IMAGE_SIZE, TRAIN_SIZE)
+    weights = compute_weight(hws, IMAGE_SIZE, TRAIN_SIZE, sigma)
+    model.eval()
+    test_dataset = datasets.KITTI(split='testing')
+
+    print(f'kitti test length: {len(test_dataset)}')
+
+    out_list, epe_list = [], []
+    for val_id in range(len(test_dataset)):
+        image1, image2, frame_id = test_dataset[val_id]
+        print(frame_id)
+        new_shape = image1.shape[1:]
+        if new_shape[1] != IMAGE_SIZE[1]:
+            print(f"replace {IMAGE_SIZE} with {new_shape}")
+            IMAGE_SIZE[0] = 432
+            IMAGE_SIZE[1] = new_shape[1]
+            hws = compute_grid_indices(IMAGE_SIZE, TRAIN_SIZE)
+            weights = compute_weight(hws, IMAGE_SIZE, TRAIN_SIZE, sigma)
+
+        padder = InputPadder(image1.shape, mode='kitti432')
+        image1, image2 = padder.pad(image1[None].cuda(), image2[None].cuda())
+
+        flow_pre = inference_with_tile(model, image1, image2, hws, weights, TRAIN_SIZE, IMAGE_SIZE, padder=padder)
+
+        flow = flow_pre[0].cpu()
+        # print(os.path.join(cfg.save_path, frame_id[0]))
+        # out_picture(flow, os.path.join(cfg.save_path, frame_id[0]))
+        # out_linepic(image1[0].cpu(), image2[0].cpu(), flow, os.path.join(cfg.save_path, frame_id[0]))
+        out_flow(flow, os.path.join(cfg.save_path, frame_id[0]).replace('.png', '.npy'))
+
 import pytorch_lightning as pl
 
 class PLWrap(pl.LightningModule):
@@ -451,6 +500,7 @@ if __name__ == '__main__':
     # parser.add_argument('--model_path', help='ckpt path')
     parser.add_argument('--eval', help='eval benchmark: sintel_validation | kitti_validation | sintel_submission | kitti_submission | kitti_getflow | tum_getflow')
     parser.add_argument('--save_path', type=str)
+    parser.add_argument('--data_path', type=str)
     args = parser.parse_args()
 
     if args.model_type == 'SAMFlow-H':
@@ -508,8 +558,10 @@ if __name__ == '__main__':
         exp_func = getflow_tum
         cfg = get_cfg()
         cfg.FlowModel.decoder_depth = 24
-
-
+    elif args.eval == 'kittis_test':
+        exp_func = test_kittis
+        cfg = get_cfg()
+        cfg.FlowModel.decoder_depth = 24
     else:
         print(f"EROOR: {args.eval} is not valid")
     cfg.update(vars(args))
